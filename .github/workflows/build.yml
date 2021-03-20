@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       debugging_jobs:
@@ -23,6 +21,18 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v2
+      - uses: homper/skip_or_debug_jobs@main
+        id: test_output
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          job_id: static
+          job_matrix: |
+            cpu: [X64, ARM64]
+            compiler: [clang, gcc]
+            check_type: [normal, debug, valgrind_1, valgrind_2]
+      - run: echo "${{steps.test_output.outputs.run_static}}"
+      - run: echo "${{steps.test_output.outputs.run_ban}}"
+      - run: exit 1
       - name: Generate matrices
         id: generate_matrices
         run: |
@@ -32,15 +42,13 @@ jobs:
             test \
             'cpu: [X64, ARM64],
              compiler: [clang, gcc],
-             check_type: [normal, debug, valgrind_1, valgrind_2]' \
-            test_matrix
+             check_type: [normal, debug, valgrind_1, valgrind_2]'
           perl ./ci/generate_matrix.pl \
             "${{ github.event.head_commit.message }}" \
             "${{ github.event.inputs.debugging_jobs }}" \
             static \
             'cpu: [X64, ARM64],
-             compiler: [clang, gcc]' \
-            static_matrix
+             compiler: [clang, gcc]'
   test:
     runs-on: ubuntu-latest
     needs: setup_ci
@@ -53,10 +61,6 @@ jobs:
       COMPILER: ${{ matrix.compiler }}
       CHECK_TYPE: ${{ matrix.check_type }}
     steps:
-      - run: apt-cache show tmate
-      - run: echo ${{needs.setup_ci.outputs.run_test}}
-      - run: echo ${{needs.setup_ci.outputs.run_static}}
-      - run: echo "${{fromJson('true') == true}}"
       - uses: actions/checkout@v2
       - name: Setup debug session
         uses: orioledb/action-tmate@tmate-from-repository
@@ -84,8 +88,6 @@ jobs:
       CPU: ${{ matrix.cpu }}
       COMPILER: ${{ matrix.compiler }}
     steps:
-      - run: echo ${{needs.setup_ci.outputs.run_test}}
-      - run: echo ${{needs.setup_ci.outputs.run_static}}
       - uses: actions/checkout@v2
       - name: Setup debug session
         uses: orioledb/action-tmate@tmate-from-repository

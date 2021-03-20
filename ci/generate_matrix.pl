@@ -1,9 +1,29 @@
+=pod
+    Used in build.yml to dynamicly generate job matrix based on commit message
+    and workflow dispatch arguments
+    Args:
+        - commit message
+            which may contain [skip JOB_PATH]
+        - comma separated list of debugging jobs (FULL_JOB_PATH-s)
+        - name of job for which matrix generated
+        - base matrix for job
+    FULL_JOB_PATH:
+        Dot separated list of matrix elements.
+        Starts with job name
+        Should contain single value from each row of base matrix in
+        the same order as rows
+        For example: test.X64.clang.debug, static.ARM64.gcc
+    JOB_PATH:
+        Same as FULL_JOB_PATH, but may skip any element from path, but should
+        have order as matrix rows
+        For example: ARM64, test.debug, X64.debug, X64.clang.debug
+=cut
+
 use Data::Dumper;
 my $commit_message=@ARGV[0];
 my $debugging_jobs=@ARGV[1];
 my $job_id=@ARGV[2];
 my $matrix=@ARGV[3];
-my $output_name=@ARGV[4];
 
 my @cmds = (); # ARRAY(ARRAYS(('skip' | 'run'), ARRAYS(CMD_PATH_ARRAY)))
 my @matrix_keys = (); # needed for matrix generation
@@ -124,5 +144,5 @@ for $job_path (0..$#running)
 print("run_$job_id = ".($#running != -1 ? "true" : "false")."\n");
 print("::set-output name=run_".$job_id."::".
       ($#running != -1 ? "true" : "false")."\n");
-print("$output_name = {\"include\":[$include_string]}\n");
-print("::set-output name=".$output_name."::{\"include\":[$include_string]}\n");
+print("${job_id}_matrix = {\"include\":[$include_string]}\n");
+print("::set-output name=${job_id}_matrix::{\"include\":[$include_string]}\n");
