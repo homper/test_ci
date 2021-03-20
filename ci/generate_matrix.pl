@@ -1,27 +1,20 @@
 use Data::Dumper;
 my $commit_message=@ARGV[0];
-my $job_id=@ARGV[1];
-my $matrix=@ARGV[2];
-my $output_name=@ARGV[3];
+my $debugging_jobs=@ARGV[1];
+my $job_id=@ARGV[2];
+my $matrix=@ARGV[3];
+my $output_name=@ARGV[4];
 
-my @cmds = ();
+my @cmds = (); # ARRAY(ARRAYS(('skip' | 'run'), ARRAYS(CMD_PATH_ARRAY)))
+my @matrix_keys = (); # needed for matrix generation
+my @matrix_elements = (); # needed to filter running jobs
+my @running = (); # ARRAY(ARRAYS(JOB_PATH_ARRAY)))
 my $has_debug = 0;
-open my $fh, '<', \$commit_message or die $!;
-while (<$fh>) {
-    while(/\[(.*?)\s+(.*?)\]/g)
-    {
-        my @cmd = map {$_ =~ s/^\s+//; [split /\./, $_]} split(/,/, $2);
-        push(@cmds, [$1, \@cmd]);
-        $has_debug = $has_debug || $1 eq 'debug';
-    }
-}
-close $fh or die $!;
 
-my @matrix_keys = ();
-my @matrix_elements = ();
+# Parse matrix
 open my $fh, '<', \$matrix or die $!;
 while (<$fh>) {
-    while(/\s*(.+?):\s*?\[(.*?)\]/g)
+    while(/\s*(\w+?):\s*?\[(.*?)\]/g)
     {
         push(@matrix_keys, $1);
         (my $val = $2) =~ s/,//g;
@@ -31,26 +24,44 @@ while (<$fh>) {
 }
 close $fh or die $!;
 
-my @stack=(0) x @matrix_elements;
-my @running = ();
-my @debugging = ();
+# Parse debugging_jobs
+my @debug_cmds = (map {$_ =~ s/\s+//; [split /\./, $_]}
+                      split(/\s*,\s*/, $debugging_jobs));
+$has_debug = $#debug_cmds != -1;
 
+if ($has_debug) {
+    @cmds = ['debug', [@debug_cmds]];
+}
+else {
+    # Get all commands from commit_message
+    open my $fh, '<', \$commit_message or die $!;
+    while (<$fh>) {
+        while(/\[(.*?)\s+(.*?)\]/g)
+        {
+            my @cmd = map {$_ =~ s/^\s+//; [split /\./, $_]}
+                          split(/,/, $2);
+            push(@cmds, [$1, \@cmd]);
+        }
+    }
+    close $fh or die $!;
+}
+
+my @stack=(0) x @matrix_elements;
+
+# Generate all possible matrix combinations and add it to running if it is
+# not rejected by skip and not enabled by run commands or not in debugging_jobs
 while (@stack[0] <= $#{@matrix_elements[0]}) {
     my @job_path = ($job_id);
     for $level2 (0..$#stack) {
         push(@job_path, @{@matrix_elements[$level2]}[@stack[$level2]]);
     }
-    # print join('.', @job_path) . ":\n";
 
     my $run = !$has_debug;
     my $can_skip = 1;
-    my $debug = 0;
     for my $cmd (@cmds) {
-        # print("\t" . @$cmd[0] . ":\n");
         for my $arg (@{@$cmd[1]}) {
             my $prev_part = -1;
             my $found;
-            # print("\t\t" . join('.', @$arg) . ": ");
             for my $arg_part (@$arg) {
                 $found = 0;
                 for my $i ($prev_part+1 .. $#job_path) {
@@ -66,44 +77,31 @@ while (@stack[0] <= $#{@matrix_elements[0]}) {
                     last;
                 }
             }
-            # print($found . "\n");
-            if ($found && @$cmd[0] eq 'debug' && $#$arg == $#job_path) {
-                $debug = 1;
+            if (!$has_debug && $found && $can_skip && @$cmd[0] eq 'skip') {
                 $run = 0;
             }
-            if (!$has_debug)
-            {
-                if ($found && !$debug && $can_skip && @$cmd[0] eq 'skip') {
-                    $run = 0;
-                }
-                if ($found && !$debug && @$cmd[0] eq 'run') {
-                    $run = 1;
-                    $can_skip = 0;
-                }
+            if ($found && (@$cmd[0] eq 'run' || @$cmd[0] eq 'debug')) {
+                $run = 1;
+                $can_skip = 0;
             }
         }
     }
     if ($run) {
         push(@running, [@job_path]);
     }
-    if ($debug) {
-        push(@debugging, [@job_path]);
-    }
 
     @stack[$#stack]++;
     my $temp_level = $#stack;
     while ((@stack[$temp_level] > $#{@matrix_elements[$temp_level]}) &&
-           ($temp_level > 0)) {
+        ($temp_level > 0)) {
         @stack[$temp_level] = 0;
         @stack[$temp_level-1]++;
         $temp_level--;
     }
 }
 
+# Generate matrix
 my $include_string = "";
-if ($#running == -1 && $#debugging != -1) {
-    @running = @debugging;
-}
 for $job_path (0..$#running)
 {
     $include_string .= "{";

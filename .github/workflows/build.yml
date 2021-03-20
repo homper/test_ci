@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      debugging_jobs:
+        description: 'List of debugging jobs, separated by comma'
+        required: false
 
 jobs:
   setup_ci:
@@ -24,6 +28,7 @@ jobs:
         run: |
           perl ./ci/generate_matrix.pl \
             "${{ github.event.head_commit.message }}" \
+            "${{ github.event.inputs.debugging_jobs }}" \
             test \
             'cpu: [X64, ARM64],
              compiler: [clang, gcc],
@@ -31,6 +36,7 @@ jobs:
             test_matrix
           perl ./ci/generate_matrix.pl \
             "${{ github.event.head_commit.message }}" \
+            "${{ github.event.inputs.debugging_jobs }}" \
             static \
             'cpu: [X64, ARM64],
              compiler: [clang, gcc]' \
